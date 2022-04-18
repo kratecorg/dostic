@@ -17,8 +17,9 @@ function backup {
         -v ~/.restic/:/restic \
         -v /etc/localtime:/etc/localtime:ro \
         -v ${SOURCE}:/data/${TARGET}:ro \
-        -v ${BACKUP_BASEDIR}/dostic/restic:/restic_data/ \
-        -e RESTIC_REPOSITORY=/restic_data/ \
+        -e RESTIC_REPOSITORY=${REPOSITORY} \
+	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
+        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
         restic/restic backup -p /restic/passfile --verbose --host ${HOST} /data/${TARGET}/
 }
 
@@ -28,9 +29,10 @@ function backup_init {
         -v backup_cache:/root/.cache/restic \
         -v ~/.restic/:/restic \
         -v /etc/localtime:/etc/localtime:ro \
-        -v ${BACKUP_BASEDIR}/dostic/restic:/restic_data/ \
-        -e RESTIC_REPOSITORY=/restic_data/ \
-        restic/restic init -p /restic/passfile
+        -e RESTIC_REPOSITORY=${REPOSITORY} \
+	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
+	-e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
+        restic/restic init --verbose -p /restic/passfile
 }
 
 
@@ -39,15 +41,15 @@ function backup_postgres {
     echo "$(format_date) backing up postgres databases"
     echo ""
 
-    mkdir -p ${BACKUP_DIR}/postgres/
-    rm ${BACKUP_DIR}/postgres/*
+    mkdir -p ${BACKUP_BASEDIR}/postgres/
+    rm ${BACKUP_BASEDIR}/postgres/*
     docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 5432/tcp | awk '{ print $1 }' | while read -r line; do
         echo "$(format_date) extracting database from container '${line}'"
         docker exec -t ${line} pg_dumpall -v --lock-wait-timeout=600 -c -U postgres -f /tmp/export.sql
-        docker cp ${line}:/tmp/export.sql ${BACKUP_DIR}/postgres/${line}.sql
+        docker cp ${line}:/tmp/export.sql ${BACKUP_BASEDIR}/postgres/${line}.sql
         docker exec -t ${line} rm /tmp/export.sql
     done
-    backup ${BACKUP_DIR}/postgres/ postgres
+    backup ${BACKUP_BASEDIR}/postgres/ postgres
 }
 
 function backup_mysql {
@@ -55,15 +57,15 @@ function backup_mysql {
     echo "$(format_date) backing up mysql databases"
     echo ""
 
-    mkdir -p ${BACKUP_DIR}/mysql/
-    rm ${BACKUP_DIR}/mysql/*
+    mkdir -p ${BACKUP_BASEDIR}/mysql/
+    rm ${BACKUP_BASEDIR}/mysql/*
     docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 3306/tcp | awk '{ print $1 }' | while read -r line; do
         echo "$(format_date) extracting database from container '${line}'"
         docker exec -t ${line} sh -c 'mysqldump -uroot -p"${MYSQL_ROOT_PASSWORD}" -A -r /tmp/export.sql'
-        docker cp ${line}:/tmp/export.sql ${BACKUP_DIR}/mysql/${line}.sql
+        docker cp ${line}:/tmp/export.sql ${BACKUP_BASEDIR}/mysql/${line}.sql
         docker exec -t ${line} rm /tmp/export.sql
     done
-    backup ${BACKUP_DIR}/mysql/ mysql
+    backup ${BACKUP_BASEDIR}/mysql/ mysql
 }
 
 
@@ -101,8 +103,9 @@ function display_current_state {
         -v backup_cache:/root/.cache/restic \
         -v ~/.restic/:/restic \
         -v /etc/localtime:/etc/localtime:ro \
-        -v ${BACKUP_BASEDIR}/dostic/restic:/restic_data/ \
-        -e RESTIC_REPOSITORY=/restic_data/ \
+        -e RESTIC_REPOSITORY=${REPOSITORY} \
+	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
+        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
         restic/restic snapshots -p /restic/passfile
 }
 
@@ -115,7 +118,8 @@ function remove_old {
         -v backup_cache:/root/.cache/restic \
         -v ~/.restic/:/restic \
         -v /etc/localtime:/etc/localtime:ro \
-        -v ${BACKUP_BASEDIR}/dostic/restic:/restic_data/ \
-        -e RESTIC_REPOSITORY=/restic_data/ \
+        -e RESTIC_REPOSITORY=${REPOSITORY} \
+	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
+        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
         restic/restic forget -p /restic/passfile --keep-daily 14 --keep-weekly 12 --keep-monthly 12 --keep-yearly 5
 }
