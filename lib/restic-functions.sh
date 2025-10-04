@@ -11,8 +11,13 @@ function backup {
     local source_path="$1"
     local target_name="$2"
     
+    # Convert to absolute path if relative
+    if [[ ! "${source_path}" =~ ^/ ]]; then
+        source_path="$(cd "${source_path}" 2>/dev/null && pwd)" || source_path="$(realpath "${source_path}" 2>/dev/null)"
+    fi
+    
     echo ""
-    echo "$(format_date) backing up from ${source_path} as ${target_name}"
+    echo "$(format_date) backing up '${source_path}' as '${target_name}'"
     echo ""
     
     local docker_args=()
@@ -28,7 +33,7 @@ function backup {
     local tag_args=(--tag "${target_name}")
     
     docker run "${docker_args[@]}" \
-        restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose /backup
+        restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "${source_path}"
 }
 
 function restic_init {
@@ -43,32 +48,68 @@ function restic_init {
         restic/restic init --verbose
 }
 
-function backup_init_old {
-    docker run --rm --name restic \
-        -v backup_cache:/root/.cache/restic \
-        -v ~/.restic/:/restic \
-        -v /etc/localtime:/etc/localtime:ro \
-        -e RESTIC_REPOSITORY=${REPOSITORY} \
-	    -e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-	    -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-        restic/restic init --verbose -p /restic/passfile
-}
-
-
 function backup_postgres {
     echo ""
     echo "$(format_date) backing up postgres databases"
     echo ""
 
-    mkdir -p ${BACKUP_BASEDIR}/postgres/
-    rm ${BACKUP_BASEDIR}/postgres/*
-    docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 5432/tcp | awk '{ print $1 }' | while read -r line; do
-        echo "$(format_date) extracting database from container '${line}'"
-        docker exec -t ${line} pg_dumpall -v --lock-wait-timeout=600 -c -U postgres -f /tmp/export.sql
-        docker cp ${line}:/tmp/export.sql ${BACKUP_BASEDIR}/postgres/${line}.sql
-        docker exec -t ${line} rm /tmp/export.sql
+    # Use BACKUP_BASEDIR or fallback to /tmp/backups
+    local backup_base="${BACKUP_BASEDIR:-/tmp/backups}/postgres"
+    mkdir -p "${backup_base}"
+    
+    # Find all postgres containers (port 5432)
+    local postgres_containers=$(docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 5432/tcp | awk '{ print $1 }')
+    
+    if [[ -z "${postgres_containers}" ]]; then
+        echo "$(format_date) no postgres containers found, skipping"
+        return 0
+    fi
+    
+    # Dump each postgres database separately
+    echo "${postgres_containers}" | while read -r container; do
+        echo "$(format_date) extracting database from container '${container}'"
+        
+        # Create container-specific directory
+        local container_dir="${backup_base}/${container}"
+        mkdir -p "${container_dir}"
+        rm -f "${container_dir}"/*
+        
+        local dump_success=false
+        local dump_user=""
+        
+        # Try different postgres users in order
+        for user in "postgres" "\${POSTGRES_USER}" "\$(whoami)" ""; do
+            local user_arg=""
+            
+            if [[ -n "${user}" ]]; then
+                # Expand environment variable if it looks like one
+                if [[ "${user}" == \$* ]]; then
+                    user_arg="-U ${user}"
+                else
+                    user_arg="-U ${user}"
+                fi
+            fi
+            
+            # Try to dump with this user
+            if docker exec -t "${container}" sh -c "pg_dumpall -v --lock-wait-timeout=600 -c ${user_arg} -f /tmp/export.sql" 2>/dev/null; then
+                dump_success=true
+                dump_user="${user:-default}"
+                break
+            fi
+        done
+        
+        if [[ "${dump_success}" == "true" ]]; then
+            docker cp "${container}:/tmp/export.sql" "${container_dir}/${container}.dump.sql"
+            docker exec -t "${container}" rm /tmp/export.sql
+            echo "$(format_date) successfully dumped database from '${container}' (user: ${dump_user})"
+            
+            # Backup this specific container's dump with absolute path
+            local abs_container_dir="$(cd "${container_dir}" && pwd)"
+            backup "${abs_container_dir}" "postgres/${container}"
+        else
+            echo "$(format_date) WARNING: failed to dump database from '${container}' with any user" >&2
+        fi
     done
-    backup ${BACKUP_BASEDIR}/postgres/ postgres
 }
 
 function backup_mysql {

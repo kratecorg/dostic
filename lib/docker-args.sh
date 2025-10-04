@@ -44,8 +44,8 @@ function build_backup_docker_args {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    # Mount source directly as backup target without nested /data path
-    docker_args+=(-v "${source_path}:/backup:ro")
+    # Mount source at its original path to preserve path information in snapshots
+    docker_args+=(-v "${source_path}:${source_path}:ro")
     
     # Return the array by printing each element
     printf '%s\n' "${docker_args[@]}"
