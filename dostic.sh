@@ -81,7 +81,7 @@ fi
 # Execute command
 case "${COMMAND}" in
     init)
-        backup_init
+        restic_init
         ;;
     backup)
         echo "=========================================="
@@ -95,7 +95,7 @@ case "${COMMAND}" in
         echo "=========================================="
         echo "Backup completed at $(format_date)"
         echo "=========================================="
-        display_current_state
+        restic_snapshots
         ;;
     backup-postgres)
         backup_postgres
@@ -110,32 +110,22 @@ case "${COMMAND}" in
         backup_folders
         ;;
     snapshots)
-        display_current_state
+        restic_snapshots
         ;;
     stats)
-        display_sizes
+        restic_stats
         ;;
     forget)
-        remove_old
+        restic_forget
         ;;
     prune)
-        prune
+        restic_prune
         ;;
     unlock)
-        unlock
+        restic_unlock
         ;;
     check)
-        echo ""
-        echo "$(format_date) checking repository integrity"
-        echo ""
-        docker run --rm --name restic \
-            -v backup_cache:/root/.cache/restic \
-            -v ~/.restic/:/restic \
-            -v /etc/localtime:/etc/localtime:ro \
-            -e RESTIC_REPOSITORY=${REPOSITORY} \
-            -e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-            -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-            restic/restic check -p /restic/passfile
+        restic_check
         ;;
     *)
         echo "ERROR: Unknown command '${COMMAND}'" >&2

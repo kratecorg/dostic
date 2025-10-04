@@ -26,7 +26,7 @@ function backup {
         restic/restic backup -p /restic/passfile --verbose --host ${HOST} /data/${TARGET}/
 }
 
-function backup_init {
+function restic_init {
     echo ""
     echo "$(format_date) initializing restic repository"
     echo ""
@@ -108,58 +108,31 @@ function backup_folders {
     backup /etc system/etc
 }
 
-function display_sizes {
+function restic_stats {
     echo ""
-    echo "$(format_date) current sizes"
+    echo "$(format_date) repository statistics"
     echo ""
-    docker run --rm --name restic \
-        -v backup_cache:/root/.cache/restic \
-        -v ~/.restic/:/restic \
-        -v /etc/localtime:/etc/localtime:ro \
-        -v /backups/system/:/target/ \
-        -e RESTIC_REPOSITORY=${REPOSITORY} \
-        -e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-        restic/restic stats --mode raw-data --json -p /restic/passfile
-
-#    echo ${FOO} > /tmp/stats2.json
-#    for id in $(echo ${FOO} | jq -r '.[].short_id'); do
-#        echo $id
-
-#    BAR=$(docker run --rm --name restic \
-#        -v backup_cache:/root/.cache/restic \
-#        -v ~/.restic/:/restic \
-#        -v /etc/localtime:/etc/localtime:ro \
-#        -v /backups/system/:/target/ \
-#        -e RESTIC_REPOSITORY=${REPOSITORY} \
-#        -e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-#        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-#        restic/restic stats --mode restored --snapshot ${id} -p /restic/passfile)
-#    echo ${BAR}
-#    RESULT=$(echo $BAR| grep 'Total File Size' | awk '{print $NF}')
-#    echo "${id} - ${RESULT}"
-#    size=$(restic stats --mode restored --snapshot $id | grep 'Total File Size' | awk '{print $NF}')
-#    echo "$id - $size"
-#    done
-
+    
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    docker run "${docker_args[@]}" \
+        restic/restic stats --mode raw-data
 }
 
-function display_current_state {
+function restic_snapshots {
     echo ""
     echo "$(format_date) current snapshots"
     echo ""
-
-    docker run --rm --name restic \
-        -v backup_cache:/root/.cache/restic \
-        -v ~/.restic/:/restic \
-        -v /etc/localtime:/etc/localtime:ro \
-        -e RESTIC_REPOSITORY=${REPOSITORY} \
-	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-        restic/restic snapshots -p /restic/passfile
+    
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    docker run "${docker_args[@]}" \
+        restic/restic snapshots
 }
 
-function remove_old {
+function restic_forget {
     echo ""
     echo "$(format_date) removing old snapshots"
     echo ""
@@ -174,7 +147,7 @@ function remove_old {
         restic/restic forget -p /restic/passfile --keep-daily 14 --keep-weekly 12 --keep-monthly 12 --keep-yearly 5
 }
 
-function prune {
+function restic_prune {
     echo ""
     echo "$(format_date) removing old snapshot data"
     echo ""
@@ -190,18 +163,27 @@ function prune {
 }
 
 
-function unlock {
+function restic_unlock {
     echo ""
-    echo "$(format_date) unlocking repo"
+    echo "$(format_date) unlocking repository"
     echo ""
+    
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    docker run "${docker_args[@]}" \
+        restic/restic unlock
+}
 
-    docker run --rm --name restic \
-        -v backup_cache:/root/.cache/restic \
-        -v ~/.restic/:/restic \
-        -v /etc/localtime:/etc/localtime:ro \
-        -e RESTIC_REPOSITORY=${REPOSITORY} \
-	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-        restic/restic unlock -p /restic/passfile
+function restic_check {
+    echo ""
+    echo "$(format_date) checking repository integrity"
+    echo ""
+    
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    docker run "${docker_args[@]}" \
+        restic/restic check
 }
 
