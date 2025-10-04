@@ -121,15 +121,46 @@ function backup_mysql {
     echo "$(format_date) backing up mysql databases"
     echo ""
 
-    mkdir -p ${BACKUP_BASEDIR}/mysql/
-    rm ${BACKUP_BASEDIR}/mysql/*
-    docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 3306/tcp | awk '{ print $1 }' | while read -r line; do
-        echo "$(format_date) extracting database from container '${line}'"
-        docker exec -t ${line} sh -c 'mysqldump -uroot -p"${MYSQL_ROOT_PASSWORD}" -A -r /tmp/export.sql'
-        docker cp ${line}:/tmp/export.sql ${BACKUP_BASEDIR}/mysql/${line}.sql
-        docker exec -t ${line} rm /tmp/export.sql
+    # Use BACKUP_BASEDIR or fallback to /tmp/backups
+    local backup_base="${BACKUP_BASEDIR}/mysql"
+    mkdir -p "${backup_base}"
+    
+    # Find all mysql containers (port 3306)
+    local mysql_containers=$(docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 3306/tcp | awk '{ print $1 }')
+    
+    if [[ -z "${mysql_containers}" ]]; then
+        echo "$(format_date) no mysql containers found, skipping"
+        return 0
+    fi
+    
+    # Dump each mysql database separately
+    echo "${mysql_containers}" | while read -r container; do
+        echo "$(format_date) extracting database from container '${container}'"
+        
+        # Create container-specific directory
+        local container_dir="${backup_base}/${container}"
+        mkdir -p "${container_dir}"
+        rm -f "${container_dir}"/*
+        
+        local dump_success=false
+        
+        # Try to dump with root user and MYSQL_ROOT_PASSWORD env var
+        if docker exec -t "${container}" sh -c 'mysqldump -uroot -p"${MYSQL_ROOT_PASSWORD}" -A -r /tmp/export.sql' 2>/dev/null; then
+            dump_success=true
+        fi
+        
+        if [[ "${dump_success}" == "true" ]]; then
+            docker cp "${container}:/tmp/export.sql" "${container_dir}/${container}.dump.sql"
+            docker exec -t "${container}" rm /tmp/export.sql
+            echo "$(format_date) successfully dumped database from '${container}'"
+            
+            # Backup this specific container's dump with absolute path
+            local abs_container_dir="$(cd "${container_dir}" && pwd)"
+            backup "${abs_container_dir}" "mysql/${container}"
+        else
+            echo "$(format_date) WARNING: failed to dump database from '${container}'" >&2
+        fi
     done
-    backup ${BACKUP_BASEDIR}/mysql/ mysql
 }
 
 

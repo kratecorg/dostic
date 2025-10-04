@@ -89,7 +89,7 @@ case "${COMMAND}" in
         echo "Starting full backup at $(format_date)"
         echo "=========================================="
         backup_postgres
-        # backup_mysql
+        backup_mysql
         backup_docker_volumes
         backup_folders
         echo ""
