@@ -24,6 +24,10 @@ else
 fi
 
 # Load library functions
+source "${SCRIPT_DIR}/lib/defaults.sh"
+source "${SCRIPT_DIR}/lib/utils.sh"
+source "${SCRIPT_DIR}/lib/config-validation.sh"
+source "${SCRIPT_DIR}/lib/docker-args.sh"
 source "${SCRIPT_DIR}/lib/restic-functions.sh"
 
 # Default values if not set in config
@@ -58,6 +62,21 @@ fi
 
 COMMAND=$1
 shift
+
+# Validate configuration for all commands that need it
+# (skip for help/info commands that don't interact with the repository)
+case "${COMMAND}" in
+    -h|--help|help)
+        show_usage
+        ;;
+esac
+
+# Now validate config for all other commands
+if ! validate_config; then
+    echo ""
+    echo "ERROR: Configuration validation failed. Please fix the errors above." >&2
+    exit 1
+fi
 
 # Execute command
 case "${COMMAND}" in
