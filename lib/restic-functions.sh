@@ -304,14 +304,24 @@ function restic_forget {
     echo "$(format_date) removing old snapshots"
     echo ""
 
-    docker run --rm --name restic \
-        -v backup_cache:/root/.cache/restic \
-        -v ~/.restic/:/restic \
-        -v /etc/localtime:/etc/localtime:ro \
-        -e RESTIC_REPOSITORY=${REPOSITORY} \
-	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-        restic/restic forget -p /restic/passfile --keep-daily 14 --keep-weekly 12 --keep-monthly 12 --keep-yearly 5
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    # Use configurable retention policy or defaults
+    local keep_daily="${KEEP_DAILY:-14}"
+    local keep_weekly="${KEEP_WEEKLY:-12}"
+    local keep_monthly="${KEEP_MONTHLY:-12}"
+    local keep_yearly="${KEEP_YEARLY:-5}"
+    
+    echo "$(format_date) retention policy: daily=${keep_daily}, weekly=${keep_weekly}, monthly=${keep_monthly}, yearly=${keep_yearly}"
+    
+    docker run "${docker_args[@]}" \
+        restic/restic forget \
+            --keep-daily "${keep_daily}" \
+            --keep-weekly "${keep_weekly}" \
+            --keep-monthly "${keep_monthly}" \
+            --keep-yearly "${keep_yearly}" \
+            --prune
 }
 
 function restic_prune {
@@ -319,14 +329,11 @@ function restic_prune {
     echo "$(format_date) removing old snapshot data"
     echo ""
 
-    docker run --rm --name restic \
-        -v backup_cache:/root/.cache/restic \
-        -v ~/.restic/:/restic \
-        -v /etc/localtime:/etc/localtime:ro \
-        -e RESTIC_REPOSITORY=${REPOSITORY} \
-	-e B2_ACCOUNT_ID=${B2_ACCOUNT_ID} \
-        -e B2_ACCOUNT_KEY=${B2_ACCOUNT_KEY} \
-        restic/restic prune -p /restic/passfile
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    docker run "${docker_args[@]}" \
+        restic/restic prune
 }
 
 
