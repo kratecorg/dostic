@@ -40,13 +40,14 @@ function build_backup_docker_args {
     local source_path="$1"
     local mount_target="$2"
     
+    # mount_target should already be absolute (e.g., /backups/postgres/name)
     # Get base args
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    # Mount source at its original path to preserve path information in snapshots
-    docker_args+=(-v "${source_path}:${source_path}:ro")
-    
+    # Mount source at specified target path
+    docker_args+=(-v "${source_path}:${mount_target}:ro")
+
     # Return the array by printing each element
     printf '%s\n' "${docker_args[@]}"
 }
@@ -69,7 +70,7 @@ function build_restore_docker_args {
 # Build docker arguments for docker volume backup
 function build_volume_backup_docker_args {
     local volume_name="$1"
-    local backup_path="/volumes/${volume_name}"
+    local backup_path="/backups/volumes/${volume_name}"
     
     # Get base args
     local docker_args=()

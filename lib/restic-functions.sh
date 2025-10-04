@@ -16,12 +16,15 @@ function backup {
         source_path="$(cd "${source_path}" 2>/dev/null && pwd)" || source_path="$(realpath "${source_path}" 2>/dev/null)"
     fi
     
+    # Build target path for container (always under /backups/)
+    local container_path="/backups/${target_name}"
+    
     echo ""
     echo "$(format_date) backing up '${source_path}' as '${target_name}'"
     echo ""
     
     local docker_args=()
-    mapfile -t docker_args < <(build_backup_docker_args "${source_path}" "${target_name}")
+    mapfile -t docker_args < <(build_backup_docker_args "${source_path}" "${container_path}")
     
     # Add hostname if set
     local host_arg=()
@@ -33,7 +36,7 @@ function backup {
     local tag_args=(--tag "${target_name}")
     
     docker run "${docker_args[@]}" \
-        restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "${source_path}"
+        restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "${container_path}"
 }
 
 function restic_init {
@@ -54,7 +57,7 @@ function backup_postgres {
     echo ""
 
     # Use BACKUP_BASEDIR or fallback to /tmp/backups
-    local backup_base="${BACKUP_BASEDIR:-/tmp/backups}/postgres"
+    local backup_base="${BACKUP_BASEDIR}/postgres"
     mkdir -p "${backup_base}"
     
     # Find all postgres containers (port 5432)
@@ -73,6 +76,7 @@ function backup_postgres {
         local container_dir="${backup_base}/${container}"
         mkdir -p "${container_dir}"
         rm -f "${container_dir}"/*
+        echo "container_dir: ${container_dir}"
         
         local dump_success=false
         local dump_user=""
@@ -195,7 +199,7 @@ function backup_docker_volumes {
         
         # Backup the volume
         docker run "${docker_args[@]}" \
-            restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "/volumes/${volume}"
+            restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "/backups/volumes/${volume}"
     done
 }
 

@@ -32,7 +32,7 @@ source "${SCRIPT_DIR}/lib/restic-functions.sh"
 
 # Default values if not set in config
 HOST="${HOST:-$(hostname)}"
-BACKUP_BASEDIR="${BACKUP_BASEDIR:-/tmp/backups}"
+BACKUP_BASEDIR="${BACKUP_BASEDIR:-/backups}"
 
 # Show usage
 function show_usage {
@@ -89,7 +89,7 @@ case "${COMMAND}" in
         echo "Starting full backup at $(format_date)"
         echo "=========================================="
         backup_postgres
-        backup_mysql
+        # backup_mysql
         backup_docker_volumes
         backup_folders
         echo ""
