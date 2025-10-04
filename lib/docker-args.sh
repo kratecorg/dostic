@@ -65,3 +65,19 @@ function build_restore_docker_args {
     # Return the array by printing each element
     printf '%s\n' "${docker_args[@]}"
 }
+
+# Build docker arguments for docker volume backup
+function build_volume_backup_docker_args {
+    local volume_name="$1"
+    local backup_path="/volumes/${volume_name}"
+    
+    # Get base args
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    # Mount docker volume to a specific path in container
+    docker_args+=(-v "${volume_name}:${backup_path}:ro")
+    
+    # Return the array by printing each element
+    printf '%s\n' "${docker_args[@]}"
+}

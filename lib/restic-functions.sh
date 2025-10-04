@@ -134,13 +134,68 @@ function backup_docker_volumes {
     echo "$(format_date) backing up docker volumes"
     echo ""
 
-    docker volume list -q | egrep -v '^.{64}$' | while read -r volume; do
-        echo "$(format_date) backing up docker volume '${volume}'"
-        if [[ "${volume}" == "backup_cache" ]]; then
-            echo "ignoring volume '${volume}'"
+    # Get list of named volumes (exclude hash-only volumes)
+    local volumes=$(docker volume list -q | egrep -v '^.{64}$')
+    
+    if [[ -z "${volumes}" ]]; then
+        echo "$(format_date) no docker volumes found, skipping"
+        return 0
+    fi
+    
+    # Backup each volume separately
+    echo "${volumes}" | while read -r volume; do
+        # Skip cache volume
+        if [[ "${volume}" == "${CACHE_VOLUME_NAME}" ]]; then
+            echo "$(format_date) skipping cache volume '${volume}'"
             continue
         fi
-        backup ${volume} docker/${volume}
+        
+        # Check if volume should be excluded
+        local should_skip=false
+        
+        # Check EXCLUDE_VOLUMES (comma-separated list of exact names)
+        if [[ -n "${EXCLUDE_VOLUMES:-}" ]]; then
+            IFS=',' read -ra exclude_list <<< "${EXCLUDE_VOLUMES}"
+            for exclude_pattern in "${exclude_list[@]}"; do
+                exclude_pattern=$(echo "${exclude_pattern}" | xargs)  # trim whitespace
+                if [[ "${volume}" == "${exclude_pattern}" ]]; then
+                    echo "$(format_date) skipping excluded volume '${volume}' (exact match)"
+                    should_skip=true
+                    break
+                fi
+            done
+        fi
+        
+        # Check EXCLUDE_VOLUMES_REGEX (regex pattern)
+        if [[ "${should_skip}" == "false" ]] && [[ -n "${EXCLUDE_VOLUMES_REGEX:-}" ]]; then
+            if [[ "${volume}" =~ ${EXCLUDE_VOLUMES_REGEX} ]]; then
+                echo "$(format_date) skipping excluded volume '${volume}' (regex match)"
+                should_skip=true
+            fi
+        fi
+        
+        # Skip if matched any exclude pattern
+        if [[ "${should_skip}" == "true" ]]; then
+            continue
+        fi
+        
+        echo "$(format_date) backing up docker volume '${volume}'"
+        
+        local docker_args=()
+        mapfile -t docker_args < <(build_volume_backup_docker_args "${volume}")
+        
+        # Add hostname if set
+        local host_arg=()
+        if [[ -n "${HOST:-}" ]]; then
+            host_arg=(--host "${HOST}")
+        fi
+        
+        # Add tags for better organization
+        local tag_args=(--tag "volume/${volume}")
+        
+        # Backup the volume
+        docker run "${docker_args[@]}" \
+            restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "/volumes/${volume}"
     done
 }
 
