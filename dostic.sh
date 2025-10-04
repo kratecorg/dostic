@@ -47,6 +47,7 @@ function show_usage {
     echo "  backup-folders    Backup only system folders"
     echo "  snapshots         Show current snapshots"
     echo "  stats             Show repository statistics"
+    echo "  restore           Restore a snapshot (usage: restore <snapshot-id> <target-path>)"
     echo "  forget            Remove old snapshots (according to retention policy)"
     echo "  prune             Remove old snapshot data from repository"
     echo "  unlock            Unlock the repository"
@@ -114,6 +115,9 @@ case "${COMMAND}" in
         ;;
     stats)
         restic_stats
+        ;;
+    restore)
+        restic_restore "$@"
         ;;
     forget)
         restic_forget

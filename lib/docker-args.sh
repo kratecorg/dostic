@@ -3,6 +3,7 @@
 # Docker argument builders for different repository types
 
 # Build complete docker arguments based on repository type
+# Optional parameters can be passed via associative array name
 function build_docker_args {
     local docker_args=(
         --rm
@@ -34,3 +35,33 @@ function build_docker_args {
     printf '%s\n' "${docker_args[@]}"
 }
 
+# Build docker arguments for backup with source mount
+function build_backup_docker_args {
+    local source_path="$1"
+    local mount_target="$2"
+    
+    # Get base args
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    # Mount source directly as backup target without nested /data path
+    docker_args+=(-v "${source_path}:/backup:ro")
+    
+    # Return the array by printing each element
+    printf '%s\n' "${docker_args[@]}"
+}
+
+# Build docker arguments for restore with target mount
+function build_restore_docker_args {
+    local target_path="$1"
+    
+    # Get base args
+    local docker_args=()
+    mapfile -t docker_args < <(build_docker_args)
+    
+    # Add target volume mount (read-write for restore)
+    docker_args+=(-v "${target_path}:/restore")
+    
+    # Return the array by printing each element
+    printf '%s\n' "${docker_args[@]}"
+}
