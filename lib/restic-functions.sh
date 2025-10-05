@@ -82,7 +82,6 @@ function backup_postgres {
         local container_dir="${backup_base}/${container}"
         mkdir -p "${container_dir}"
         rm -f "${container_dir}"/*
-        echo "container_dir: ${container_dir}"
         
         local dump_success=false
         local dump_user=""
