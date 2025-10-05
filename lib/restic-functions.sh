@@ -35,8 +35,11 @@ function backup {
     # Add tags for better organization
     local tag_args=(--tag "${target_name}")
     
-    docker run "${docker_args[@]}" \
-        restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "${container_path}"
+    if ! docker run "${docker_args[@]}" \
+        restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "${container_path}"; then
+        echo "ERROR: Backup failed for '${target_name}'" >&2
+        return 1
+    fi
 }
 
 function restic_init {
@@ -47,8 +50,11 @@ function restic_init {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    docker run "${docker_args[@]}" \
-        restic/restic init --verbose
+    if ! docker run "${docker_args[@]}" \
+        restic/restic init --verbose; then
+        echo "ERROR: Repository initialization failed" >&2
+        return 1
+    fi
 }
 
 function backup_postgres {
@@ -109,7 +115,10 @@ function backup_postgres {
             
             # Backup this specific container's dump with absolute path
             local abs_container_dir="$(cd "${container_dir}" && pwd)"
-            backup "${abs_container_dir}" "postgres/${container}"
+            if ! backup "${abs_container_dir}" "postgres/${container}"; then
+                echo "ERROR: Backup failed for postgres container '${container}'" >&2
+                return 1
+            fi
         else
             echo "$(format_date) WARNING: failed to dump database from '${container}' with any user" >&2
         fi
@@ -156,7 +165,10 @@ function backup_mysql {
             
             # Backup this specific container's dump with absolute path
             local abs_container_dir="$(cd "${container_dir}" && pwd)"
-            backup "${abs_container_dir}" "mysql/${container}"
+            if ! backup "${abs_container_dir}" "mysql/${container}"; then
+                echo "ERROR: Backup failed for mysql container '${container}'" >&2
+                return 1
+            fi
         else
             echo "$(format_date) WARNING: failed to dump database from '${container}'" >&2
         fi
@@ -229,8 +241,11 @@ function backup_docker_volumes {
         local tag_args=(--tag "volume/${volume}")
         
         # Backup the volume
-        docker run "${docker_args[@]}" \
-            restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "/backups/volumes/${volume}"
+        if ! docker run "${docker_args[@]}" \
+            restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "/backups/volumes/${volume}"; then
+            echo "ERROR: Backup failed for volume '${volume}'" >&2
+            return 1
+        fi
     done
 }
 
@@ -271,7 +286,10 @@ function backup_folders {
         fi
         
         echo "$(format_date) backing up folder '${source_path}' as '${target_name}'"
-        backup "${source_path}" "folders/${target_name}"
+        if ! backup "${source_path}" "folders/${target_name}"; then
+            echo "ERROR: Backup failed for folder '${source_path}'" >&2
+            return 1
+        fi
     done
 }
 
@@ -283,8 +301,11 @@ function restic_stats {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    docker run "${docker_args[@]}" \
-        restic/restic stats --mode raw-data
+    if ! docker run "${docker_args[@]}" \
+        restic/restic stats --mode raw-data; then
+        echo "ERROR: Failed to retrieve repository statistics" >&2
+        return 1
+    fi
 }
 
 function restic_snapshots {
@@ -295,8 +316,11 @@ function restic_snapshots {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    docker run "${docker_args[@]}" \
-        restic/restic snapshots
+    if ! docker run "${docker_args[@]}" \
+        restic/restic snapshots; then
+        echo "ERROR: Failed to retrieve snapshots" >&2
+        return 1
+    fi
 }
 
 function restic_forget {
@@ -315,13 +339,16 @@ function restic_forget {
     
     echo "$(format_date) retention policy: daily=${keep_daily}, weekly=${keep_weekly}, monthly=${keep_monthly}, yearly=${keep_yearly}"
     
-    docker run "${docker_args[@]}" \
+    if ! docker run "${docker_args[@]}" \
         restic/restic forget \
             --keep-daily "${keep_daily}" \
             --keep-weekly "${keep_weekly}" \
             --keep-monthly "${keep_monthly}" \
             --keep-yearly "${keep_yearly}" \
-            --prune
+            --prune; then
+        echo "ERROR: Failed to remove old snapshots" >&2
+        return 1
+    fi
 }
 
 function restic_prune {
@@ -332,8 +359,11 @@ function restic_prune {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    docker run "${docker_args[@]}" \
-        restic/restic prune
+    if ! docker run "${docker_args[@]}" \
+        restic/restic prune; then
+        echo "ERROR: Failed to prune repository" >&2
+        return 1
+    fi
 }
 
 
@@ -345,8 +375,11 @@ function restic_unlock {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    docker run "${docker_args[@]}" \
-        restic/restic unlock
+    if ! docker run "${docker_args[@]}" \
+        restic/restic unlock; then
+        echo "ERROR: Failed to unlock repository" >&2
+        return 1
+    fi
 }
 
 function restic_check {
@@ -357,8 +390,11 @@ function restic_check {
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
-    docker run "${docker_args[@]}" \
-        restic/restic check
+    if ! docker run "${docker_args[@]}" \
+        restic/restic check; then
+        echo "ERROR: Repository integrity check failed" >&2
+        return 1
+    fi
 }
 
 function restic_restore {
@@ -394,8 +430,11 @@ function restic_restore {
     local docker_args=()
     mapfile -t docker_args < <(build_restore_docker_args "${target_path}")
     
-    docker run "${docker_args[@]}" \
-        restic/restic restore "${snapshot_id}" --target /restore --verbose
+    if ! docker run "${docker_args[@]}" \
+        restic/restic restore "${snapshot_id}" --target /restore --verbose; then
+        echo "ERROR: Restore failed for snapshot '${snapshot_id}'" >&2
+        return 1
+    fi
     
     echo ""
     echo "$(format_date) restore completed"
