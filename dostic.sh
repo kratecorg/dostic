@@ -2,9 +2,56 @@
 
 set -euo pipefail
 
+# Version
+VERSION="0.2.0"
+
 # Determine script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PWD="$(pwd)"
+
+# Show usage
+function show_usage {
+    echo "dostic v${VERSION} - Docker + Restic Backup Solution"
+    echo ""
+    echo "Usage: $0 <command>"
+    echo ""
+    echo "Commands:"
+    echo "  init              Initialize a new backup repository"
+    echo "  backup            Run full backup (postgres, mysql, volumes, folders)"
+    echo "  backup-postgres   Backup only PostgreSQL databases"
+    echo "  backup-mysql      Backup only MySQL databases"
+    echo "  backup-volumes    Backup only Docker volumes"
+    echo "  backup-folders    Backup only system folders"
+    echo "  snapshots         Show current snapshots"
+    echo "  stats             Show repository statistics"
+    echo "  restore           Restore a snapshot (usage: restore <snapshot-id> <target-path>)"
+    echo "  forget            Remove old snapshots (according to retention policy)"
+    echo "  prune             Remove old snapshot data from repository"
+    echo "  unlock            Unlock the repository"
+    echo "  check             Verify repository integrity"
+    echo "  version           Show version information"
+    echo ""
+    exit 1
+}
+
+# Check if command is provided
+if [ $# -eq 0 ]; then
+    show_usage
+fi
+
+COMMAND=$1
+shift
+
+# Handle version and help before loading config
+case "${COMMAND}" in
+    -h|--help|help)
+        show_usage
+        ;;
+    -v|--version|version)
+        echo "dostic v${VERSION}"
+        exit 0
+        ;;
+esac
 
 # Load configuration
 if [ -f "${PWD}/.dostic.env" ]; then
@@ -34,45 +81,7 @@ source "${SCRIPT_DIR}/lib/restic-functions.sh"
 HOST="${HOST:-$(hostname)}"
 BACKUP_BASEDIR="${BACKUP_BASEDIR:-/backups}"
 
-# Show usage
-function show_usage {
-    echo "Usage: $0 <command>"
-    echo ""
-    echo "Commands:"
-    echo "  init              Initialize a new backup repository"
-    echo "  backup            Run full backup (postgres, mysql, volumes, folders)"
-    echo "  backup-postgres   Backup only PostgreSQL databases"
-    echo "  backup-mysql      Backup only MySQL databases"
-    echo "  backup-volumes    Backup only Docker volumes"
-    echo "  backup-folders    Backup only system folders"
-    echo "  snapshots         Show current snapshots"
-    echo "  stats             Show repository statistics"
-    echo "  restore           Restore a snapshot (usage: restore <snapshot-id> <target-path>)"
-    echo "  forget            Remove old snapshots (according to retention policy)"
-    echo "  prune             Remove old snapshot data from repository"
-    echo "  unlock            Unlock the repository"
-    echo "  check             Verify repository integrity"
-    echo ""
-    exit 1
-}
-
-# Check if command is provided
-if [ $# -eq 0 ]; then
-    show_usage
-fi
-
-COMMAND=$1
-shift
-
-# Validate configuration for all commands that need it
-# (skip for help/info commands that don't interact with the repository)
-case "${COMMAND}" in
-    -h|--help|help)
-        show_usage
-        ;;
-esac
-
-# Now validate config for all other commands
+# Validate configuration
 if ! validate_config; then
     echo ""
     echo "ERROR: Configuration validation failed. Please fix the errors above." >&2
@@ -86,7 +95,8 @@ case "${COMMAND}" in
         ;;
     backup)
         echo "=========================================="
-        echo "Starting full backup at $(format_date)"
+        echo "dostic v${VERSION} - Starting full backup"
+        echo "$(format_date)"
         echo "=========================================="
         backup_postgres
         backup_mysql
