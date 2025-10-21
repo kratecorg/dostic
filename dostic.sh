@@ -9,28 +9,33 @@ VERSION="0.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PWD="$(pwd)"
 
+# Load logging system first (before any output)
+source "${SCRIPT_DIR}/lib/logging.sh"
+
 # Show usage
 function show_usage {
-    echo "dostic v${VERSION} - Docker + Restic Backup Solution"
-    echo ""
-    echo "Usage: $0 <command>"
-    echo ""
-    echo "Commands:"
-    echo "  init              Initialize a new backup repository"
-    echo "  backup            Run full backup (postgres, mysql, volumes, folders)"
-    echo "  backup-postgres   Backup only PostgreSQL databases"
-    echo "  backup-mysql      Backup only MySQL databases"
-    echo "  backup-volumes    Backup only Docker volumes"
-    echo "  backup-folders    Backup only system folders"
-    echo "  snapshots         Show current snapshots"
-    echo "  stats             Show repository statistics"
-    echo "  restore           Restore a snapshot (usage: restore <snapshot-id> <target-path>)"
-    echo "  forget            Remove old snapshots (according to retention policy)"
-    echo "  prune             Remove old snapshot data from repository"
-    echo "  unlock            Unlock the repository"
-    echo "  check             Verify repository integrity"
-    echo "  version           Show version information"
-    echo ""
+    cat << EOF
+dostic v${VERSION} - Docker + Restic Backup Solution
+
+Usage: $0 <command>
+
+Commands:
+  init              Initialize a new backup repository
+  backup            Run full backup (postgres, mysql, volumes, folders)
+  backup-postgres   Backup only PostgreSQL databases
+  backup-mysql      Backup only MySQL databases
+  backup-volumes    Backup only Docker volumes
+  backup-folders    Backup only system folders
+  snapshots         Show current snapshots
+  stats             Show repository statistics
+  restore           Restore a snapshot (usage: restore <snapshot-id> <target-path>)
+  forget            Remove old snapshots (according to retention policy)
+  prune             Remove old snapshot data from repository
+  unlock            Unlock the repository
+  check             Verify repository integrity
+  version           Show version information
+
+EOF
     exit 1
 }
 
@@ -48,25 +53,24 @@ case "${COMMAND}" in
         show_usage
         ;;
     -v|--version|version)
-        echo "dostic v${VERSION}"
+        log_info "dostic v${VERSION}"
         exit 0
         ;;
 esac
 
 # Load configuration
 if [ -f "${PWD}/.dostic.env" ]; then
-    echo "Loading configuration from .dostic.env"
+    log_info "Loading configuration from .dostic.env" "path=${PWD}/.dostic.env"
     source "${PWD}/.dostic.env"
 else
-    echo "ERROR: Configuration file .dostic.env not found!" >&2
-    echo "Please create .dostic.env with required settings." >&2
-    echo "" >&2
-    echo "Example .dostic.env:" >&2
-    echo "  REPOSITORY=\"b2:bucket-name\"" >&2
-    echo "  B2_ACCOUNT_ID=\"your-account-id\"" >&2
-    echo "  B2_ACCOUNT_KEY=\"your-account-key\"" >&2
-    echo "  HOST=\"\$(hostname)\"" >&2
-    echo "  BACKUP_BASEDIR=\"/tmp/backups\"" >&2
+    log_error "Configuration file not found" "path=${PWD}/.dostic.env"
+    log_error "Please create .dostic.env with required settings"
+    log_info "Example configuration:"
+    log_info "  REPOSITORY=\"b2:bucket-name\""
+    log_info "  B2_ACCOUNT_ID=\"your-account-id\""
+    log_info "  B2_ACCOUNT_KEY=\"your-account-key\""
+    log_info "  HOST=\"\$(hostname)\""
+    log_info "  BACKUP_BASEDIR=\"/tmp/backups\""
     exit 1
 fi
 
@@ -83,8 +87,7 @@ BACKUP_BASEDIR="${BACKUP_BASEDIR:-/backups}"
 
 # Validate configuration
 if ! validate_config; then
-    echo ""
-    echo "ERROR: Configuration validation failed. Please fix the errors above." >&2
+    log_error "Configuration validation failed" "action=check_config_above"
     exit 1
 fi
 
@@ -94,18 +97,12 @@ case "${COMMAND}" in
         restic_init
         ;;
     backup)
-        echo "=========================================="
-        echo "dostic v${VERSION} - Starting full backup"
-        echo "$(format_date)"
-        echo "=========================================="
+        log_section "dostic v${VERSION} - Full Backup" "host=${HOST}"
         backup_postgres
         backup_mysql
         backup_docker_volumes
         backup_folders
-        echo ""
-        echo "=========================================="
-        echo "Backup completed at $(format_date)"
-        echo "=========================================="
+        log_section "Backup Completed" "timestamp=$(format_date)"
         restic_snapshots
         ;;
     backup-postgres)
@@ -142,8 +139,7 @@ case "${COMMAND}" in
         restic_check
         ;;
     *)
-        echo "ERROR: Unknown command '${COMMAND}'" >&2
-        echo "" >&2
+        log_error "Unknown command" "command=${COMMAND}"
         show_usage
         ;;
 esac

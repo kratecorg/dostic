@@ -2,6 +2,7 @@
 
 # Source library files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/logging.sh"
 source "${SCRIPT_DIR}/defaults.sh"
 source "${SCRIPT_DIR}/utils.sh"
 source "${SCRIPT_DIR}/config-validation.sh"
@@ -19,9 +20,7 @@ function backup {
     # Build target path for container (always under /backups/)
     local container_path="/backups/${target_name}"
     
-    echo ""
-    echo "$(format_date) backing up '${source_path}' as '${target_name}'"
-    echo ""
+    log_info "Starting backup" "source=${source_path}" "target=${target_name}"
     
     local docker_args=()
     mapfile -t docker_args < <(build_backup_docker_args "${source_path}" "${container_path}")
@@ -37,30 +36,30 @@ function backup {
     
     if ! docker run "${docker_args[@]}" \
         restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "${container_path}"; then
-        echo "ERROR: Backup failed for '${target_name}'" >&2
+        log_error "Backup failed" "target=${target_name}" "source=${source_path}"
         return 1
     fi
+    
+    log_success "Backup completed" "target=${target_name}"
 }
 
 function restic_init {
-    echo ""
-    echo "$(format_date) initializing restic repository"
-    echo ""
+    log_info "Initializing restic repository" "repo=${REPOSITORY}"
     
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
     if ! docker run "${docker_args[@]}" \
         restic/restic init --verbose; then
-        echo "ERROR: Repository initialization failed" >&2
+        log_error "Repository initialization failed" "repo=${REPOSITORY}"
         return 1
     fi
+    
+    log_success "Repository initialized" "repo=${REPOSITORY}"
 }
 
 function backup_postgres {
-    echo ""
-    echo "$(format_date) backing up postgres databases"
-    echo ""
+    log_section "PostgreSQL Backup" "type=postgres"
 
     # Use BACKUP_BASEDIR or fallback to /tmp/backups
     local backup_base="${BACKUP_BASEDIR}/postgres"
@@ -70,13 +69,13 @@ function backup_postgres {
     local postgres_containers=$(docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 5432/tcp | awk '{ print $1 }')
     
     if [[ -z "${postgres_containers}" ]]; then
-        echo "$(format_date) no postgres containers found, skipping"
+        log_info "No PostgreSQL containers found, skipping" "port=5432"
         return 0
     fi
     
     # Dump each postgres database separately
     echo "${postgres_containers}" | while read -r container; do
-        echo "$(format_date) extracting database from container '${container}'"
+        log_info "Extracting database" "container=${container}" "type=postgres"
         
         # Create container-specific directory
         local container_dir="${backup_base}/${container}"
@@ -100,6 +99,7 @@ function backup_postgres {
             fi
             
             # Try to dump with this user
+            log_debug "Trying pg_dumpall" "container=${container}" "user=${user:-default}"
             if docker exec -t "${container}" sh -c "pg_dumpall -v --lock-wait-timeout=600 -c ${user_arg} -f /tmp/export.sql" 2>/dev/null; then
                 dump_success=true
                 dump_user="${user:-default}"
@@ -110,24 +110,22 @@ function backup_postgres {
         if [[ "${dump_success}" == "true" ]]; then
             docker cp "${container}:/tmp/export.sql" "${container_dir}/${container}.dump.sql"
             docker exec -t "${container}" rm /tmp/export.sql
-            echo "$(format_date) successfully dumped database from '${container}' (user: ${dump_user})"
+            log_success "Database dump completed" "container=${container}" "user=${dump_user}"
             
             # Backup this specific container's dump with absolute path
             local abs_container_dir="$(cd "${container_dir}" && pwd)"
             if ! backup "${abs_container_dir}" "postgres/${container}"; then
-                echo "ERROR: Backup failed for postgres container '${container}'" >&2
+                log_error "Backup failed" "container=${container}" "type=postgres"
                 return 1
             fi
         else
-            echo "$(format_date) WARNING: failed to dump database from '${container}' with any user" >&2
+            log_warn "Failed to dump database with any user" "container=${container}"
         fi
     done
 }
 
 function backup_mysql {
-    echo ""
-    echo "$(format_date) backing up mysql databases"
-    echo ""
+    log_section "MySQL Backup" "type=mysql"
 
     # Use BACKUP_BASEDIR or fallback to /tmp/backups
     local backup_base="${BACKUP_BASEDIR}/mysql"
@@ -137,13 +135,13 @@ function backup_mysql {
     local mysql_containers=$(docker ps -a --format '{{.Names}}\t{{.Ports}}' | grep 3306/tcp | awk '{ print $1 }')
     
     if [[ -z "${mysql_containers}" ]]; then
-        echo "$(format_date) no mysql containers found, skipping"
+        log_info "No MySQL containers found, skipping" "port=3306"
         return 0
     fi
     
     # Dump each mysql database separately
     echo "${mysql_containers}" | while read -r container; do
-        echo "$(format_date) extracting database from container '${container}'"
+        log_info "Extracting database" "container=${container}" "type=mysql"
         
         # Create container-specific directory
         local container_dir="${backup_base}/${container}"
@@ -153,6 +151,7 @@ function backup_mysql {
         local dump_success=false
         
         # Try to dump with root user and MYSQL_ROOT_PASSWORD env var
+        log_debug "Trying mysqldump" "container=${container}" "user=root"
         if docker exec -t "${container}" sh -c 'mysqldump -uroot -p"${MYSQL_ROOT_PASSWORD}" -A -r /tmp/export.sql' 2>/dev/null; then
             dump_success=true
         fi
@@ -160,31 +159,29 @@ function backup_mysql {
         if [[ "${dump_success}" == "true" ]]; then
             docker cp "${container}:/tmp/export.sql" "${container_dir}/${container}.dump.sql"
             docker exec -t "${container}" rm /tmp/export.sql
-            echo "$(format_date) successfully dumped database from '${container}'"
+            log_success "Database dump completed" "container=${container}"
             
             # Backup this specific container's dump with absolute path
             local abs_container_dir="$(cd "${container_dir}" && pwd)"
             if ! backup "${abs_container_dir}" "mysql/${container}"; then
-                echo "ERROR: Backup failed for mysql container '${container}'" >&2
+                log_error "Backup failed" "container=${container}" "type=mysql"
                 return 1
             fi
         else
-            echo "$(format_date) WARNING: failed to dump database from '${container}'" >&2
+            log_warn "Failed to dump database" "container=${container}"
         fi
     done
 }
 
 
 function backup_docker_volumes {
-    echo ""
-    echo "$(format_date) backing up docker volumes"
-    echo ""
+    log_section "Docker Volumes Backup" "type=volumes"
 
     # Get list of named volumes (exclude hash-only volumes)
     local volumes=$(docker volume list -q | egrep -v '^.{64}$')
     
     if [[ -z "${volumes}" ]]; then
-        echo "$(format_date) no docker volumes found, skipping"
+        log_info "No Docker volumes found, skipping"
         return 0
     fi
     
@@ -192,7 +189,7 @@ function backup_docker_volumes {
     echo "${volumes}" | while read -r volume; do
         # Skip cache volume
         if [[ "${volume}" == "${CACHE_VOLUME_NAME}" ]]; then
-            echo "$(format_date) skipping cache volume '${volume}'"
+            log_debug "Skipping cache volume" "volume=${volume}"
             continue
         fi
         
@@ -205,7 +202,7 @@ function backup_docker_volumes {
             for exclude_pattern in "${exclude_list[@]}"; do
                 exclude_pattern=$(echo "${exclude_pattern}" | xargs)  # trim whitespace
                 if [[ "${volume}" == "${exclude_pattern}" ]]; then
-                    echo "$(format_date) skipping excluded volume '${volume}' (exact match)"
+                    log_info "Skipping excluded volume" "volume=${volume}" "reason=exact_match"
                     should_skip=true
                     break
                 fi
@@ -215,7 +212,7 @@ function backup_docker_volumes {
         # Check EXCLUDE_VOLUMES_REGEX (regex pattern)
         if [[ "${should_skip}" == "false" ]] && [[ -n "${EXCLUDE_VOLUMES_REGEX:-}" ]]; then
             if [[ "${volume}" =~ ${EXCLUDE_VOLUMES_REGEX} ]]; then
-                echo "$(format_date) skipping excluded volume '${volume}' (regex match)"
+                log_info "Skipping excluded volume" "volume=${volume}" "reason=regex_match"
                 should_skip=true
             fi
         fi
@@ -225,7 +222,7 @@ function backup_docker_volumes {
             continue
         fi
         
-        echo "$(format_date) backing up docker volume '${volume}'"
+        log_info "Backing up Docker volume" "volume=${volume}"
         
         local docker_args=()
         mapfile -t docker_args < <(build_volume_backup_docker_args "${volume}")
@@ -242,20 +239,20 @@ function backup_docker_volumes {
         # Backup the volume
         if ! docker run "${docker_args[@]}" \
             restic/restic backup "${host_arg[@]}" "${tag_args[@]}" --verbose "/backups/volumes/${volume}"; then
-            echo "ERROR: Backup failed for volume '${volume}'" >&2
+            log_error "Volume backup failed" "volume=${volume}"
             return 1
         fi
+        
+        log_success "Volume backup completed" "volume=${volume}"
     done
 }
 
 function backup_folders {
-    echo ""
-    echo "$(format_date) backing up folders"
-    echo ""
+    log_section "Folders Backup" "type=folders"
 
     # Check if BACKUP_FOLDERS is set
     if [[ -z "${BACKUP_FOLDERS:-}" ]]; then
-        echo "WARNING: BACKUP_FOLDERS not set in configuration, skipping folder backup" >&2
+        log_warn "BACKUP_FOLDERS not set in configuration, skipping folder backup"
         return 0
     fi
 
@@ -280,52 +277,46 @@ function backup_folders {
         
         # Check if source exists
         if [[ ! -d "${source_path}" ]]; then
-            echo "WARNING: Folder '${source_path}' does not exist, skipping" >&2
+            log_warn "Folder does not exist, skipping" "path=${source_path}"
             continue
         fi
         
-        echo "$(format_date) backing up folder '${source_path}' as '${target_name}'"
+        log_info "Backing up folder" "source=${source_path}" "target=${target_name}"
         if ! backup "${source_path}" "folders/${target_name}"; then
-            echo "ERROR: Backup failed for folder '${source_path}'" >&2
+            log_error "Folder backup failed" "path=${source_path}"
             return 1
         fi
     done
 }
 
 function restic_stats {
-    echo ""
-    echo "$(format_date) repository statistics"
-    echo ""
+    log_section "Repository Statistics"
     
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
     if ! docker run "${docker_args[@]}" \
         restic/restic stats --mode raw-data; then
-        echo "ERROR: Failed to retrieve repository statistics" >&2
+        log_error "Failed to retrieve repository statistics" "repo=${REPOSITORY}"
         return 1
     fi
 }
 
 function restic_snapshots {
-    echo ""
-    echo "$(format_date) current snapshots"
-    echo ""
+    log_section "Current Snapshots"
     
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
     if ! docker run "${docker_args[@]}" \
         restic/restic snapshots; then
-        echo "ERROR: Failed to retrieve snapshots" >&2
+        log_error "Failed to retrieve snapshots" "repo=${REPOSITORY}"
         return 1
     fi
 }
 
 function restic_forget {
-    echo ""
-    echo "$(format_date) removing old snapshots"
-    echo ""
+    log_section "Removing Old Snapshots"
 
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
@@ -336,7 +327,7 @@ function restic_forget {
     local keep_monthly="${KEEP_MONTHLY:-12}"
     local keep_yearly="${KEEP_YEARLY:-5}"
     
-    echo "$(format_date) retention policy: daily=${keep_daily}, weekly=${keep_weekly}, monthly=${keep_monthly}, yearly=${keep_yearly}"
+    log_info "Applying retention policy" "daily=${keep_daily}" "weekly=${keep_weekly}" "monthly=${keep_monthly}" "yearly=${keep_yearly}"
     
     if ! docker run "${docker_args[@]}" \
         restic/restic forget \
@@ -345,55 +336,57 @@ function restic_forget {
             --keep-monthly "${keep_monthly}" \
             --keep-yearly "${keep_yearly}" \
             --prune; then
-        echo "ERROR: Failed to remove old snapshots" >&2
+        log_error "Failed to remove old snapshots" "repo=${REPOSITORY}"
         return 1
     fi
+    
+    log_success "Old snapshots removed"
 }
 
 function restic_prune {
-    echo ""
-    echo "$(format_date) removing old snapshot data"
-    echo ""
+    log_section "Pruning Repository"
 
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
     if ! docker run "${docker_args[@]}" \
         restic/restic prune; then
-        echo "ERROR: Failed to prune repository" >&2
+        log_error "Failed to prune repository" "repo=${REPOSITORY}"
         return 1
     fi
+    
+    log_success "Repository pruned"
 }
 
 
 function restic_unlock {
-    echo ""
-    echo "$(format_date) unlocking repository"
-    echo ""
+    log_section "Unlocking Repository"
     
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
     if ! docker run "${docker_args[@]}" \
         restic/restic unlock; then
-        echo "ERROR: Failed to unlock repository" >&2
+        log_error "Failed to unlock repository" "repo=${REPOSITORY}"
         return 1
     fi
+    
+    log_success "Repository unlocked"
 }
 
 function restic_check {
-    echo ""
-    echo "$(format_date) checking repository integrity"
-    echo ""
+    log_section "Checking Repository Integrity"
     
     local docker_args=()
     mapfile -t docker_args < <(build_docker_args)
     
     if ! docker run "${docker_args[@]}" \
         restic/restic check; then
-        echo "ERROR: Repository integrity check failed" >&2
+        log_error "Repository integrity check failed" "repo=${REPOSITORY}"
         return 1
     fi
+    
+    log_success "Repository integrity verified"
 }
 
 function restic_restore {
@@ -402,41 +395,37 @@ function restic_restore {
     
     # Validate parameters
     if [[ -z "${snapshot_id}" ]]; then
-        echo "ERROR: Snapshot ID is required" >&2
-        echo "Usage: restic_restore <snapshot-id> <target-path>" >&2
+        log_error "Snapshot ID is required"
+        log_info "Usage: restic_restore <snapshot-id> <target-path>"
         return 1
     fi
     
     if [[ -z "${target_path}" ]]; then
-        echo "ERROR: Target path is required" >&2
-        echo "Usage: restic_restore <snapshot-id> <target-path>" >&2
+        log_error "Target path is required"
+        log_info "Usage: restic_restore <snapshot-id> <target-path>"
         return 1
     fi
     
     # Create target directory if it doesn't exist
     if [[ ! -d "${target_path}" ]]; then
-        echo "$(format_date) creating target directory: ${target_path}"
+        log_info "Creating target directory" "path=${target_path}"
         mkdir -p "${target_path}"
     fi
     
     # Make path absolute
     target_path="$(cd "${target_path}" && pwd)"
     
-    echo ""
-    echo "$(format_date) restoring snapshot '${snapshot_id}' to '${target_path}'"
-    echo ""
+    log_section "Restoring Snapshot" "snapshot=${snapshot_id}" "target=${target_path}"
     
     local docker_args=()
     mapfile -t docker_args < <(build_restore_docker_args "${target_path}")
     
     if ! docker run "${docker_args[@]}" \
         restic/restic restore "${snapshot_id}" --target /restore --verbose; then
-        echo "ERROR: Restore failed for snapshot '${snapshot_id}'" >&2
+        log_error "Restore failed" "snapshot=${snapshot_id}" "target=${target_path}"
         return 1
     fi
     
-    echo ""
-    echo "$(format_date) restore completed"
-    echo ""
+    log_success "Restore completed" "snapshot=${snapshot_id}" "target=${target_path}"
 }
 
